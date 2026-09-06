@@ -1,0 +1,6 @@
+/* Reset index.css to avoid default Vite starter layout styles */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
