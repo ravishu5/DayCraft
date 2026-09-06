@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { AppTab, RoutinePersona } from './types';
 import { useTheme } from './hooks/useTheme';
+import { useVersionCheck } from './hooks/useVersionCheck';
 import { formatDateKey, StorageService } from './services/storageService';
 import { Navigation } from './components/Navigation';
 import { TodayView } from './components/today/TodayView';
@@ -10,6 +11,7 @@ import { HistoryView } from './components/history/HistoryView';
 import { SettingsView } from './components/settings/SettingsView';
 import { WelcomeView } from './components/welcome/WelcomeView';
 import { InstallModal } from './components/install/InstallModal';
+import { UpdateModal } from './components/update/UpdateModal';
 import './styles/app.css';
 
 export function App() {
@@ -18,6 +20,17 @@ export function App() {
   const [todayRefreshKey, setTodayRefreshKey] = useState<number>(0);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+  const [isUpdateDismissed, setIsUpdateDismissed] = useState(false);
+
+  // Version management and update checking
+  const {
+    currentVersion,
+    isChecking: isCheckingVersion,
+    isUpdateRequired,
+    isUpdateAvailable,
+    config: versionConfig,
+    checkUpdates
+  } = useVersionCheck();
 
   // Directly head to homepage if any blueprint was selected earlier or profile exists
   const [showWelcome, setShowWelcome] = useState<boolean>(() => {
@@ -100,6 +113,9 @@ export function App() {
             onThemeChange={setTheme}
             onOpenWelcome={() => setShowWelcome(true)}
             onOpenInstall={() => setIsInstallModalOpen(true)}
+            versionConfig={versionConfig}
+            isCheckingVersion={isCheckingVersion}
+            onCheckUpdates={checkUpdates}
             onDataReset={() => {
               setCurrentDateStr(formatDateKey(new Date()));
               setTodayRefreshKey((prev) => prev + 1);
@@ -121,6 +137,19 @@ export function App() {
         <InstallModal
           onClose={() => setIsInstallModalOpen(false)}
           deferredPrompt={deferredPrompt}
+        />
+      )}
+
+      {/* App Version Update Modal (Mandatory when below minVersion) */}
+      {(isUpdateRequired || (isUpdateAvailable && !isUpdateDismissed)) && (
+        <UpdateModal
+          currentVersion={currentVersion}
+          isUpdateRequired={isUpdateRequired}
+          isUpdateAvailable={isUpdateAvailable}
+          config={versionConfig}
+          isChecking={isCheckingVersion}
+          onCheckAgain={checkUpdates}
+          onDismiss={isUpdateRequired ? undefined : () => setIsUpdateDismissed(true)}
         />
       )}
 

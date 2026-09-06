@@ -1,0 +1,11 @@
+{
+  "minVersion": "1.0.0",
+  "latestVersion": "1.0.0",
+  "versionCode": 1,
+  "minVersionCode": 1,
+  "forceUpdate": false,
+  "title": "DayCraft is Up to Date",
+  "message": "You are on the latest version of DayCraft.",
+  "releaseNotes": [],
+  "downloadUrl": "https://github.com/ravishu5/DayCraft/releases"
+}

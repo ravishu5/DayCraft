@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Sun, Moon, Monitor, Check } from 'lucide-react';
+import { Sun, Moon, Monitor, Check, RefreshCw, Smartphone } from 'lucide-react';
 import type { ThemeMode, RoutinePersona } from '../../types';
 import { StorageService } from '../../services/storageService';
+import { APP_CURRENT_VERSION } from '../../constants/version';
+import type { AppVersionConfig } from '../../types/version';
 
 interface SettingsViewProps {
   theme: ThemeMode;
@@ -9,6 +11,9 @@ interface SettingsViewProps {
   onOpenWelcome?: () => void;
   onOpenInstall?: () => void;
   onDataReset: () => void;
+  versionConfig?: AppVersionConfig | null;
+  isCheckingVersion?: boolean;
+  onCheckUpdates?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -16,8 +21,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onThemeChange,
   onOpenWelcome,
   onDataReset,
+  versionConfig,
+  isCheckingVersion = false,
+  onCheckUpdates,
 }) => {
   const [presetStatus, setPresetStatus] = useState<string | null>(null);
+  const [updateFeedback, setUpdateFeedback] = useState<string | null>(null);
   const activePersona = StorageService.getSelectedPersona();
 
   const handleApplyPersona = (persona: RoutinePersona) => {
@@ -255,6 +264,81 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
         </div>
+      </div>
+
+      {/* App Version & Minimum Version Status */}
+      <div
+        style={{
+          background: 'var(--card-bg)',
+          border: '1px solid var(--card-border)',
+          borderRadius: 'var(--radius-xl)',
+          padding: '1.25rem',
+          marginBottom: '1.25rem',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Smartphone size={18} />
+            <span>App Version & Updates</span>
+          </h2>
+          <span
+            style={{
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              padding: '0.15rem 0.5rem',
+              borderRadius: 'var(--radius-full)',
+              background: 'var(--pill-bg)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--card-border)',
+            }}
+          >
+            v{APP_CURRENT_VERSION}
+          </span>
+        </div>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+          Configured minimum supported version: <strong>v{versionConfig?.minVersion || '1.0.0'}</strong> (Latest: v{versionConfig?.latestVersion || '1.0.0'})
+        </p>
+
+        <button
+          type="button"
+          className="btn-secondary"
+          style={{
+            width: '100%',
+            justifyContent: 'center',
+            padding: '0.7rem',
+            fontSize: '0.84rem',
+            fontWeight: 600,
+            gap: '0.5rem',
+          }}
+          disabled={isCheckingVersion}
+          onClick={() => {
+            if (onCheckUpdates) {
+              onCheckUpdates();
+              setUpdateFeedback('Checking latest version config...');
+              setTimeout(() => {
+                setUpdateFeedback('Version check complete!');
+                setTimeout(() => setUpdateFeedback(null), 3000);
+              }, 1200);
+            }
+          }}
+        >
+          <RefreshCw size={15} className={isCheckingVersion ? 'spin' : ''} />
+          <span>{isCheckingVersion ? 'Checking for Updates...' : 'Check for Updates'}</span>
+        </button>
+
+        {updateFeedback && (
+          <div
+            style={{
+              fontSize: '0.76rem',
+              color: '#3b82f6',
+              fontWeight: 600,
+              textAlign: 'center',
+              marginTop: '0.5rem',
+            }}
+          >
+            {updateFeedback}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -86,6 +86,33 @@ Choose a lifestyle blueprint upon onboarding or switch anytime via Settings:
 | **Routines Library** | Morning, Afternoon, Evening & Bedtime templates | [View Screenshot](screenshot%20image/02_routines_library.png) |
 | **Weekly Schedule** | Recurring 7-day timetable planner | [View Screenshot](screenshot%20image/03_weekly_schedule.png) |
 | **Lifestyle Blueprints** | Theme selector & lifestyle profiles | [View Screenshot](screenshot%20image/04_lifestyle_blueprints.png) |
+| **Version Enforcement** | Remote minimum version check & update prompt | [View Screenshot](screenshot%20image/05_update_required_prompt.png) |
+
+---
+
+## ⚙️ Minimum Version Maintenance (`version-config.json`)
+
+DayCraft includes a remote version governance system. The app automatically queries `version-config.json` at launch and within Settings:
+
+```json
+{
+  "minVersion": "1.0.0",
+  "latestVersion": "1.0.0",
+  "versionCode": 1,
+  "minVersionCode": 1,
+  "forceUpdate": true,
+  "title": "Update Required",
+  "message": "A newer version of DayCraft is required to continue.",
+  "releaseNotes": [
+    "Minimum supported version enforced",
+    "Lifestyle blueprint persistence fixes"
+  ],
+  "downloadUrl": "https://github.com/ravishu5/DayCraft/releases"
+}
+```
+
+- **Enforcement Rule**: If `installedVersion < minVersion`, a non-dismissible prompt blocks outdated app usage until updated.
+- **Dynamic Re-Check**: Tapping "Check Again" on the device re-evaluates the config instantly.
 
 ---
 
