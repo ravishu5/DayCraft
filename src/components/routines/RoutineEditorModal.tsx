@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Plus, Trash2, ArrowUp, ArrowDown, Clock, AlignLeft } from 'lucide-react';
-import { TIME_BLOCK_CONFIG } from '../../types';
+import { TIME_BLOCK_CONFIG, TIME_OF_DAY_ORDER } from '../../types';
 import type { RoutineTemplate, RoutineSection, RoutineTask, TimeOfDay, RoutinePersona } from '../../types';
 import { generateId, StorageService } from '../../services/storageService';
 
@@ -162,7 +162,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
     onClose();
   };
 
-  const categories: TimeOfDay[] = ['morning', 'afternoon', 'evening', 'bedtime'];
+  const categories = TIME_OF_DAY_ORDER;
 
   return (
     <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true">

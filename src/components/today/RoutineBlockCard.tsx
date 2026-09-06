@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import { TIME_BLOCK_CONFIG } from '../../types';
 import type { DailyRoutineBlock, TimeOfDay } from '../../types';
@@ -13,7 +13,7 @@ interface RoutineBlockCardProps {
   onAddOneOffTask: (category: TimeOfDay) => void;
 }
 
-export const RoutineBlockCard: React.FC<RoutineBlockCardProps> = ({
+export const RoutineBlockCard: React.FC<RoutineBlockCardProps> = React.memo(({
   category,
   block,
   onChangeBlock,
@@ -22,8 +22,22 @@ export const RoutineBlockCard: React.FC<RoutineBlockCardProps> = ({
   onAddOneOffTask,
 }) => {
   const meta = TIME_BLOCK_CONFIG[category];
-  const allTasks = block.sections.flatMap((s) => s.tasks);
-  const completedCount = allTasks.filter((t) => t.completed).length;
+
+  // Two passes over every task in the block, recomputed only when the block changes.
+  const { taskCount, completedCount } = useMemo(() => {
+    let taskCount = 0;
+    let completedCount = 0;
+    for (const section of block.sections) {
+      for (const task of section.tasks) {
+        taskCount += 1;
+        if (task.completed) completedCount += 1;
+      }
+    }
+    return { taskCount, completedCount };
+  }, [block]);
+
+  const handleChangeBlock = useCallback(() => onChangeBlock(category), [onChangeBlock, category]);
+  const handleAddTask = useCallback(() => onAddOneOffTask(category), [onAddOneOffTask, category]);
 
   return (
     <article className={`routine-block-card block-${category}`} aria-labelledby={`block-heading-${category}`}>
@@ -46,7 +60,7 @@ export const RoutineBlockCard: React.FC<RoutineBlockCardProps> = ({
           type="button"
           id={`btn-change-${category}`}
           className="btn-change-block"
-          onClick={() => onChangeBlock(category)}
+          onClick={handleChangeBlock}
           title={`Change ${meta.label} routine`}
         >
           <RefreshCw size={12} />
@@ -54,14 +68,14 @@ export const RoutineBlockCard: React.FC<RoutineBlockCardProps> = ({
         </button>
       </div>
 
-      {block.sections.length === 0 || allTasks.length === 0 ? (
+      {taskCount === 0 ? (
         <div style={{ padding: '1.25rem', textAlign: 'center', color: 'var(--text-muted)' }}>
           <p style={{ fontSize: '0.85rem' }}>No tasks planned for this {meta.label.toLowerCase()}.</p>
           <button
             type="button"
             className="btn-secondary"
             style={{ marginTop: '0.6rem', padding: '0.35rem 0.85rem', fontSize: '0.78rem' }}
-            onClick={() => onChangeBlock(category)}
+            onClick={handleChangeBlock}
           >
             Choose a Routine
           </button>
@@ -92,17 +106,19 @@ export const RoutineBlockCard: React.FC<RoutineBlockCardProps> = ({
           type="button"
           id={`btn-add-task-${category}`}
           className="btn-add-inline-task"
-          onClick={() => onAddOneOffTask(category)}
+          onClick={handleAddTask}
         >
           <Plus size={14} />
           <span>Add task to today's {meta.label.toLowerCase()}</span>
         </button>
-        {allTasks.length > 0 && (
+        {taskCount > 0 && (
           <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-            {completedCount}/{allTasks.length} done
+            {completedCount}/{taskCount} done
           </span>
         )}
       </div>
     </article>
   );
-};
+});
+
+RoutineBlockCard.displayName = 'RoutineBlockCard';

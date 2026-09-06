@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
 import { Plus, Edit3, Copy, Trash2 } from 'lucide-react';
-import { TIME_BLOCK_CONFIG } from '../../types';
+import { TIME_BLOCK_CONFIG, TIME_OF_DAY_ORDER } from '../../types';
 import type { RoutineTemplate, TimeOfDay } from '../../types';
 import { useRoutines } from '../../hooks/useRoutines';
 import { StorageService } from '../../services/storageService';
 import { RoutineEditorModal } from './RoutineEditorModal';
 
-export const RoutinesView: React.FC = () => {
+interface RoutinesViewProps {
+  onRoutineUpdated?: () => void;
+}
+
+export const RoutinesView: React.FC<RoutinesViewProps> = ({ onRoutineUpdated }) => {
   const { getTemplatesByCategory, saveRoutine, duplicateRoutine, deleteRoutine } = useRoutines();
   const [activeCategory, setActiveCategory] = useState<TimeOfDay>('morning');
 
@@ -14,7 +18,7 @@ export const RoutinesView: React.FC = () => {
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingRoutine, setEditingRoutine] = useState<RoutineTemplate | null>(null);
 
-  const categories: TimeOfDay[] = ['morning', 'afternoon', 'evening', 'bedtime'];
+  const categories = TIME_OF_DAY_ORDER;
   const currentTemplates = getTemplatesByCategory(activeCategory);
   const filteredTemplates = currentTemplates;
   const activeMeta = TIME_BLOCK_CONFIG[activeCategory];
@@ -38,9 +42,20 @@ export const RoutinesView: React.FC = () => {
     setIsEditorOpen(true);
   };
 
+  const handleSaveRoutine = (routine: RoutineTemplate) => {
+    saveRoutine(routine);
+    onRoutineUpdated?.();
+  };
+
+  const handleDuplicate = (id: string) => {
+    duplicateRoutine(id);
+    onRoutineUpdated?.();
+  };
+
   const handleDelete = (id: string, title: string) => {
     if (window.confirm(`Delete routine template "${title}"? This will not affect days where it was already applied.`)) {
       deleteRoutine(id);
+      onRoutineUpdated?.();
     }
   };
 
@@ -216,7 +231,7 @@ export const RoutinesView: React.FC = () => {
                   <button
                     type="button"
                     className="btn-task-action"
-                    onClick={() => duplicateRoutine(template.id)}
+                    onClick={() => handleDuplicate(template.id)}
                     title="Duplicate template"
                     aria-label={`Duplicate ${template.title}`}
                   >
@@ -252,7 +267,7 @@ export const RoutinesView: React.FC = () => {
         <RoutineEditorModal
           initialRoutine={editingRoutine}
           defaultCategory={activeCategory}
-          onSave={saveRoutine}
+          onSave={handleSaveRoutine}
           onClose={() => setIsEditorOpen(false)}
         />
       )}

@@ -12,8 +12,9 @@ dist
 dist-ssr
 *.local
 
-# Redundant APK duplicate in public
-public/*.apk
+# Build outputs: signed APKs are release artifacts, not source. Each rebuild adds
+# a ~26MB blob to git history, so publish them via GitHub Releases instead.
+*.apk
 
 # Editor directories and files
 .vscode/*

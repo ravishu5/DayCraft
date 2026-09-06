@@ -1061,3 +1061,10 @@ body {
     transform: translateY(0) scale(1);
   }
 }
+
+/* Placeholder while a lazily-loaded tab chunk is fetched. Reserves height so the
+   bottom nav does not jump, and stays blank rather than flashing a spinner for a
+   load that is normally sub-frame from cache. */
+.route-loading {
+  min-height: 60vh;
+}

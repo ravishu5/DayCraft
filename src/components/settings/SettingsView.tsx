@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Sun, Moon, Monitor, Check, RefreshCw, Smartphone } from 'lucide-react';
 import type { ThemeMode, RoutinePersona } from '../../types';
 import { StorageService } from '../../services/storageService';
 import { APP_CURRENT_VERSION } from '../../constants/version';
 import type { AppVersionConfig } from '../../types/version';
+
+const CHECKING_MESSAGE = 'Checking latest version config...';
 
 interface SettingsViewProps {
   theme: ThemeMode;
@@ -13,7 +15,7 @@ interface SettingsViewProps {
   onDataReset: () => void;
   versionConfig?: AppVersionConfig | null;
   isCheckingVersion?: boolean;
-  onCheckUpdates?: () => void;
+  onCheckUpdates?: () => Promise<unknown> | void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -40,9 +42,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (persona === 'general') msg = '✨ General Lifestyle blueprint applied! Routines filtered to general flow.';
 
     setPresetStatus(msg);
-    setTimeout(() => {
-      setPresetStatus(null);
-    }, 3500);
+  };
+
+  // Auto-dismiss transient banners, cancelling the timer if the view unmounts first.
+  useEffect(() => {
+    if (!presetStatus) return;
+    const id = setTimeout(() => setPresetStatus(null), 3500);
+    return () => clearTimeout(id);
+  }, [presetStatus]);
+
+  useEffect(() => {
+    if (!updateFeedback || updateFeedback === CHECKING_MESSAGE) return;
+    const id = setTimeout(() => setUpdateFeedback(null), 3000);
+    return () => clearTimeout(id);
+  }, [updateFeedback]);
+
+  const handleCheckUpdates = () => {
+    if (!onCheckUpdates) return;
+    setUpdateFeedback(CHECKING_MESSAGE);
+    // Report the real outcome instead of a fixed 1.2s delay that claimed success
+    // regardless of whether the check actually succeeded.
+    Promise.resolve(onCheckUpdates()).then(
+      () => setUpdateFeedback('Version check complete!'),
+      () => setUpdateFeedback('Could not reach the update server.')
+    );
   };
 
   return (
@@ -311,16 +334,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             gap: '0.5rem',
           }}
           disabled={isCheckingVersion}
-          onClick={() => {
-            if (onCheckUpdates) {
-              onCheckUpdates();
-              setUpdateFeedback('Checking latest version config...');
-              setTimeout(() => {
-                setUpdateFeedback('Version check complete!');
-                setTimeout(() => setUpdateFeedback(null), 3000);
-              }, 1200);
-            }
-          }}
+          onClick={handleCheckUpdates}
         >
           <RefreshCw size={15} className={isCheckingVersion ? 'spin' : ''} />
           <span>{isCheckingVersion ? 'Checking for Updates...' : 'Check for Updates'}</span>

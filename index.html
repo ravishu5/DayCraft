@@ -13,7 +13,19 @@
     <link rel="manifest" href="/manifest.json" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!--
+      Loaded non-blocking: the app is offline-first (PWA + Capacitor APK), and a
+      render-blocking stylesheet on an unreachable host stalled first paint until the
+      request timed out. The CSS font stack renders immediately and swaps when ready.
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all';this.onload=null">
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    </noscript>
     <title>DayCraft · Routine Planner</title>
   </head>
   <body>

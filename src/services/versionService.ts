@@ -1,5 +1,9 @@
 import type { AppVersionConfig, VersionCheckResult } from '../types/version';
-import { APP_CURRENT_VERSION, VERSION_CONFIG_ENDPOINTS } from '../constants/version';
+import {
+  APP_CURRENT_VERSION,
+  VERSION_CONFIG_ENDPOINTS,
+  VERSION_FETCH_TIMEOUT_MS,
+} from '../constants/version';
 
 /**
  * Compare two semver strings (e.g. "1.0.0" vs "1.1.0").
@@ -36,23 +40,24 @@ export class VersionService {
           : `${endpoint}?${cacheBuster}`;
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const timeoutId = setTimeout(() => controller.abort(), VERSION_FETCH_TIMEOUT_MS);
 
-        const response = await fetch(url, {
-          signal: controller.signal,
-          headers: {
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Accept': 'application/json'
-          }
-        });
-        clearTimeout(timeoutId);
+        try {
+          const response = await fetch(url, {
+            signal: controller.signal,
+            cache: 'no-store',
+            headers: { Accept: 'application/json' }
+          });
 
-        if (response.ok) {
-          const config: AppVersionConfig = await response.json();
-          if (config && config.minVersion) {
-            return config;
+          if (response.ok) {
+            const config: AppVersionConfig = await response.json();
+            if (config && config.minVersion && config.latestVersion) {
+              return config;
+            }
           }
+        } finally {
+          // Always release the timer, including on a thrown/aborted request.
+          clearTimeout(timeoutId);
         }
       } catch {
         // Try next endpoint
@@ -96,14 +101,14 @@ export class VersionService {
         isUpdateAvailable,
         config
       };
-    } catch (err: any) {
+    } catch (err) {
       return {
         currentVersion: APP_CURRENT_VERSION,
         isChecking: false,
         isUpdateRequired: false,
         isUpdateAvailable: false,
         config: null,
-        error: err?.message || 'Error checking for updates'
+        error: err instanceof Error ? err.message : 'Error checking for updates'
       };
     }
   }

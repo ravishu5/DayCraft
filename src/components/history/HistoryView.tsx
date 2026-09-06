@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ChevronRight, CheckCircle2, Clock } from 'lucide-react';
-import { TIME_BLOCK_CONFIG } from '../../types';
-import type { DailyPlan, TimeOfDay } from '../../types';
+import { TIME_BLOCK_CONFIG, TIME_OF_DAY_ORDER } from '../../types';
 import { StorageService, parseDateKey, formatDateKey } from '../../services/storageService';
 
 interface HistoryViewProps {
@@ -10,39 +9,47 @@ interface HistoryViewProps {
 
 export const HistoryView: React.FC<HistoryViewProps> = ({ onSelectDate }) => {
   const installDate = StorageService.getInstallDate();
-  const storedDates = StorageService.getStoredPlanDates();
   const todayKey = formatDateKey(new Date());
 
   // Strictly only include dates on or after installDate and up to today
-  const allDates = Array.from(new Set([todayKey, ...storedDates]))
-    .filter((d) => d >= installDate && d <= todayKey)
-    .sort((a, b) => b.localeCompare(a));
-  const [activeDate, setActiveDate] = useState<string>(allDates[0] || todayKey);
+  const allDates = useMemo(
+    () =>
+      Array.from(new Set([todayKey, ...StorageService.getStoredPlanDates()]))
+        .filter((d) => d >= installDate && d <= todayKey)
+        .sort((a, b) => b.localeCompare(a)),
+    [installDate, todayKey]
+  );
+  const [activeDate, setActiveDate] = useState<string>(() => allDates[0] || todayKey);
 
-  const selectedPlan: DailyPlan = StorageService.getDailyPlan(activeDate);
-  const categories: TimeOfDay[] = ['morning', 'afternoon', 'evening', 'bedtime'];
+  // `peekDailyPlan` never persists, so browsing history cannot create plan records as
+  // a side effect of rendering.
+  const selectedPlan = useMemo(() => StorageService.peekDailyPlan(activeDate), [activeDate]);
+  const categories = TIME_OF_DAY_ORDER;
 
-  // Calculate day summary
-  let totalTasks = 0;
-  let completedTasks = 0;
-  categories.forEach((c) => {
-    const block = selectedPlan.blocks[c];
-    if (!block) return;
-    block.sections.forEach((s) => {
-      s.tasks.forEach((t) => {
-        totalTasks += 1;
-        if (t.completed) completedTasks += 1;
-      });
-    });
-  });
+  const { totalTasks, completedTasks } = useMemo(() => {
+    let total = 0;
+    let completed = 0;
+    for (const cat of TIME_OF_DAY_ORDER) {
+      for (const section of selectedPlan.blocks[cat]?.sections ?? []) {
+        for (const task of section.tasks) {
+          total += 1;
+          if (task.completed) completed += 1;
+        }
+      }
+    }
+    return { totalTasks: total, completedTasks: completed };
+  }, [selectedPlan]);
 
-  const parsedDate = parseDateKey(activeDate);
-  const dateFormatted = parsedDate.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  const dateFormatted = useMemo(
+    () =>
+      parseDateKey(activeDate).toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }),
+    [activeDate]
+  );
 
   return (
     <div className="history-view">

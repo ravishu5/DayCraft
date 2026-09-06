@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
-import { TIME_BLOCK_CONFIG } from '../../types';
-import type { DayOfWeek, TimeOfDay } from '../../types';
+import { TIME_BLOCK_CONFIG, TIME_OF_DAY_ORDER } from '../../types';
+import type { DayOfWeek } from '../../types';
 import { useWeeklySchedule } from '../../hooks/useWeeklySchedule';
 import { useRoutines } from '../../hooks/useRoutines';
 
@@ -21,7 +21,7 @@ export const ScheduleView: React.FC = () => {
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>(1); // Monday default
   const [copiedNotification, setCopiedNotification] = useState(false);
 
-  const categories: TimeOfDay[] = ['morning', 'afternoon', 'evening', 'bedtime'];
+  const categories = TIME_OF_DAY_ORDER;
   const daySchedule = schedule[selectedDay] || {
     morning: null,
     afternoon: null,

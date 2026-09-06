@@ -1,5 +1,13 @@
 export type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'bedtime';
 
+// Canonical block order. Shared so the four categories are declared exactly once.
+export const TIME_OF_DAY_ORDER: readonly TimeOfDay[] = [
+  'morning',
+  'afternoon',
+  'evening',
+  'bedtime',
+] as const;
+
 export interface RoutineTask {
   id: string;
   title: string;
@@ -66,6 +74,16 @@ export type WeeklySchedule = Record<DayOfWeek, Record<TimeOfDay, string | null>>
 export type AppTab = 'today' | 'routines' | 'schedule' | 'history' | 'settings';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
+
+/**
+ * The non-standard event Chromium fires before offering a PWA install.
+ * Declared here because it is absent from lib.dom.
+ */
+export interface BeforeInstallPromptEvent extends Event {
+  readonly platforms: string[];
+  readonly userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+  prompt(): Promise<void>;
+}
 
 export interface TimeBlockMeta {
   category: TimeOfDay;

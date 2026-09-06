@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { X, Smartphone, Download, Share, PlusSquare, Copy, Check, QrCode, Monitor } from 'lucide-react';
 import QRCode from 'qrcode';
+import type { BeforeInstallPromptEvent } from '../../types';
 
 interface InstallModalProps {
   onClose: () => void;
-  deferredPrompt?: any;
+  deferredPrompt?: BeforeInstallPromptEvent | null;
 }
 
 export const InstallModal: React.FC<InstallModalProps> = ({ onClose, deferredPrompt }) => {
@@ -26,6 +27,7 @@ export const InstallModal: React.FC<InstallModalProps> = ({ onClose, deferredPro
     : 'http://192.168.1.10:5173/';
 
   useEffect(() => {
+    let cancelled = false;
     QRCode.toDataURL(localUrl, {
       width: 220,
       margin: 1.5,
@@ -34,8 +36,13 @@ export const InstallModal: React.FC<InstallModalProps> = ({ onClose, deferredPro
         light: '#ffffff',
       },
     })
-      .then((url) => setQrCodeDataUrl(url))
+      .then((url) => {
+        if (!cancelled) setQrCodeDataUrl(url);
+      })
       .catch((err) => console.error('QR generation error:', err));
+    return () => {
+      cancelled = true;
+    };
   }, [localUrl]);
 
   const handleNativeInstall = async () => {
@@ -55,10 +62,18 @@ export const InstallModal: React.FC<InstallModalProps> = ({ onClose, deferredPro
   };
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(localUrl);
+    navigator.clipboard?.writeText(localUrl).catch(() => {
+      // Clipboard blocked (insecure context or denied permission); the URL is on screen.
+    });
     setCopied(true);
-    setTimeout(() => setCopied(false), 2200);
   };
+
+  // Reset the "Copied" affordance without leaving a timer running past unmount.
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(false), 2200);
+    return () => clearTimeout(id);
+  }, [copied]);
 
   return (
     <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true">

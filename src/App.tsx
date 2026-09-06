@@ -1,24 +1,40 @@
-import { useState, useCallback, useEffect } from 'react';
-import type { AppTab, RoutinePersona } from './types';
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
+import type { AppTab, BeforeInstallPromptEvent, RoutinePersona } from './types';
 import { useTheme } from './hooks/useTheme';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { formatDateKey, StorageService } from './services/storageService';
 import { Navigation } from './components/Navigation';
 import { TodayView } from './components/today/TodayView';
-import { RoutinesView } from './components/routines/RoutinesView';
-import { ScheduleView } from './components/schedule/ScheduleView';
-import { HistoryView } from './components/history/HistoryView';
-import { SettingsView } from './components/settings/SettingsView';
 import { WelcomeView } from './components/welcome/WelcomeView';
-import { InstallModal } from './components/install/InstallModal';
-import { UpdateModal } from './components/update/UpdateModal';
 import './styles/app.css';
+
+// Only the Today tab is on the first-paint path. Everything below is split into its own
+// chunk so the initial bundle does not carry the editor, the schedule grid, or the
+// install modal's QR-code library.
+const RoutinesView = lazy(() =>
+  import('./components/routines/RoutinesView').then((m) => ({ default: m.RoutinesView }))
+);
+const ScheduleView = lazy(() =>
+  import('./components/schedule/ScheduleView').then((m) => ({ default: m.ScheduleView }))
+);
+const HistoryView = lazy(() =>
+  import('./components/history/HistoryView').then((m) => ({ default: m.HistoryView }))
+);
+const SettingsView = lazy(() =>
+  import('./components/settings/SettingsView').then((m) => ({ default: m.SettingsView }))
+);
+const InstallModal = lazy(() =>
+  import('./components/install/InstallModal').then((m) => ({ default: m.InstallModal }))
+);
+const UpdateModal = lazy(() =>
+  import('./components/update/UpdateModal').then((m) => ({ default: m.UpdateModal }))
+);
 
 export function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('today');
   const [currentDateStr, setCurrentDateStr] = useState<string>(() => formatDateKey(new Date()));
   const [todayRefreshKey, setTodayRefreshKey] = useState<number>(0);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [isUpdateDismissed, setIsUpdateDismissed] = useState(false);
 
@@ -43,7 +59,7 @@ export function App() {
   useEffect(() => {
     const handler = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e);
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
@@ -67,17 +83,22 @@ export function App() {
     if (tab === 'today') {
       // Always reset homescreen to today's actual date
       setCurrentDateStr(formatDateKey(new Date()));
+      setTodayRefreshKey((prev) => prev + 1);
     }
     setActiveTab(tab);
   }, []);
 
-  // Sync to today's date on window focus or app resume
+  // Sync to today's date on window focus or app resume.
+  //
+  // This fires on every alt-tab and every app resume, so it only bumps the remount key
+  // when the calendar day has actually rolled over. Bumping unconditionally threw away
+  // the mounted view (and its scroll position) on every focus.
   useEffect(() => {
     const handleSync = () => {
-      if (document.visibilityState === 'visible') {
-        const today = formatDateKey(new Date());
-        setCurrentDateStr((prev) => (activeTab === 'today' ? today : prev));
-      }
+      if (document.visibilityState !== 'visible' || activeTab !== 'today') return;
+      // TodayView is keyed on the date, so setting it is enough to remount on a day
+      // rollover; React bails out when the value is unchanged.
+      setCurrentDateStr(formatDateKey(new Date()));
     };
     document.addEventListener('visibilitychange', handleSync);
     window.addEventListener('focus', handleSync);
@@ -90,6 +111,7 @@ export function App() {
   return (
     <div className="app-viewport">
       <main className="app-content">
+        <Suspense fallback={<div className="route-loading" aria-busy="true" />}>
         {activeTab === 'today' && (
           <TodayView
             key={`today-${todayRefreshKey}-${currentDateStr}`}
@@ -97,7 +119,12 @@ export function App() {
             onDateChange={setCurrentDateStr}
           />
         )}
-        {activeTab === 'routines' && <RoutinesView key={`routines-${todayRefreshKey}`} />}
+        {activeTab === 'routines' && (
+          <RoutinesView
+            key={`routines-${todayRefreshKey}`}
+            onRoutineUpdated={() => setTodayRefreshKey((prev) => prev + 1)}
+          />
+        )}
         {activeTab === 'schedule' && <ScheduleView key={`schedule-${todayRefreshKey}`} />}
         {activeTab === 'history' && (
           <HistoryView
@@ -122,6 +149,7 @@ export function App() {
             }}
           />
         )}
+        </Suspense>
       </main>
 
       {/* First-visit or user-invoked Welcome Persona Selector */}
@@ -133,25 +161,27 @@ export function App() {
       )}
 
       {/* Install to Device / Phone Modal */}
-      {isInstallModalOpen && (
-        <InstallModal
-          onClose={() => setIsInstallModalOpen(false)}
-          deferredPrompt={deferredPrompt}
-        />
-      )}
+      <Suspense fallback={null}>
+        {isInstallModalOpen && (
+          <InstallModal
+            onClose={() => setIsInstallModalOpen(false)}
+            deferredPrompt={deferredPrompt}
+          />
+        )}
 
-      {/* App Version Update Modal (Mandatory when below minVersion) */}
-      {(isUpdateRequired || (isUpdateAvailable && !isUpdateDismissed)) && (
-        <UpdateModal
-          currentVersion={currentVersion}
-          isUpdateRequired={isUpdateRequired}
-          isUpdateAvailable={isUpdateAvailable}
-          config={versionConfig}
-          isChecking={isCheckingVersion}
-          onCheckAgain={checkUpdates}
-          onDismiss={isUpdateRequired ? undefined : () => setIsUpdateDismissed(true)}
-        />
-      )}
+        {/* App Version Update Modal (Mandatory when below minVersion) */}
+        {(isUpdateRequired || (isUpdateAvailable && !isUpdateDismissed)) && (
+          <UpdateModal
+            currentVersion={currentVersion}
+            isUpdateRequired={isUpdateRequired}
+            isUpdateAvailable={isUpdateAvailable}
+            config={versionConfig}
+            isChecking={isCheckingVersion}
+            onCheckAgain={checkUpdates}
+            onDismiss={isUpdateRequired ? undefined : () => setIsUpdateDismissed(true)}
+          />
+        )}
+      </Suspense>
 
       <Navigation activeTab={activeTab} onTabChange={handleTabChange} />
     </div>

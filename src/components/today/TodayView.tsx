@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { TimeOfDay } from '../../types';
+import { TIME_OF_DAY_ORDER } from '../../types';
 import { useDailyPlan } from '../../hooks/useDailyPlan';
 import { useRoutines } from '../../hooks/useRoutines';
 import { RoutineBlockCard } from './RoutineBlockCard';
@@ -32,21 +33,25 @@ export const TodayView: React.FC<TodayViewProps> = ({ currentDateStr, onDateChan
   const [changingCategory, setChangingCategory] = useState<TimeOfDay | null>(null);
   const [addingTaskCategory, setAddingTaskCategory] = useState<TimeOfDay | null>(null);
 
-  const currentDateObj = parseDateKey(currentDateStr);
+  const currentDateObj = useMemo(() => parseDateKey(currentDateStr), [currentDateStr]);
   const todayKey = formatDateKey(new Date());
   const isToday = currentDateStr === todayKey;
 
-  // Formatted date string
-  const formattedDate = currentDateObj.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  });
+  // `toLocaleDateString` builds an Intl formatter each call; keep it off every render.
+  const formattedDate = useMemo(
+    () =>
+      currentDateObj.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+      }),
+    [currentDateObj]
+  );
 
   const installDate = StorageService.getInstallDate();
   const canGoPrev = currentDateStr > installDate;
 
-  const handlePrevDay = () => {
+  const handlePrevDay = useCallback(() => {
     if (!canGoPrev) return;
     const prev = new Date(currentDateObj);
     prev.setDate(prev.getDate() - 1);
@@ -54,19 +59,17 @@ export const TodayView: React.FC<TodayViewProps> = ({ currentDateStr, onDateChan
     if (prevStr >= installDate) {
       onDateChange(prevStr);
     }
-  };
+  }, [canGoPrev, currentDateObj, installDate, onDateChange]);
 
-  const handleNextDay = () => {
+  const handleNextDay = useCallback(() => {
     const next = new Date(currentDateObj);
     next.setDate(next.getDate() + 1);
     onDateChange(formatDateKey(next));
-  };
+  }, [currentDateObj, onDateChange]);
 
-  const handleJumpToToday = () => {
+  const handleJumpToToday = useCallback(() => {
     onDateChange(todayKey);
-  };
-
-  const categories: TimeOfDay[] = ['morning', 'afternoon', 'evening', 'bedtime'];
+  }, [onDateChange, todayKey]);
 
   return (
     <div className="today-view">
@@ -169,17 +172,17 @@ export const TodayView: React.FC<TodayViewProps> = ({ currentDateStr, onDateChan
 
       {/* 4 Composed Routine Blocks */}
       <div className="blocks-container">
-        {categories.map((cat) => {
+        {TIME_OF_DAY_ORDER.map((cat) => {
           const block = plan.blocks[cat];
           return (
             <RoutineBlockCard
               key={cat}
               category={cat}
               block={block}
-              onChangeBlock={(c) => setChangingCategory(c)}
+              onChangeBlock={setChangingCategory}
               onToggleTask={toggleTask}
               onDeleteTask={deleteDailyTask}
-              onAddOneOffTask={(c) => setAddingTaskCategory(c)}
+              onAddOneOffTask={setAddingTaskCategory}
             />
           );
         })}

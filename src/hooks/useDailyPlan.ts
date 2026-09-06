@@ -1,11 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DailyPlan, TimeOfDay } from '../types';
-import { StorageService } from '../services/storageService';
+import { TIME_OF_DAY_ORDER } from '../types';
+import {
+  StorageService,
+  removePlanTask,
+  togglePlanTask,
+} from '../services/storageService';
 
 export function useDailyPlan(dateStr: string) {
   const [plan, setPlan] = useState<DailyPlan>(() => StorageService.getDailyPlan(dateStr));
+  const loadedDateRef = useRef(dateStr);
 
+  // Reload only when the date actually changes. Running unconditionally re-read and
+  // re-parsed the plan on every mount, right after the initializer had just loaded it,
+  // costing a second render on each tab switch back to Today.
   useEffect(() => {
+    if (loadedDateRef.current === dateStr) return;
+    loadedDateRef.current = dateStr;
     setPlan(StorageService.getDailyPlan(dateStr));
   }, [dateStr]);
 
@@ -13,13 +24,17 @@ export function useDailyPlan(dateStr: string) {
     setPlan(StorageService.getDailyPlan(dateStr));
   }, [dateStr]);
 
-  const toggleTask = useCallback(
-    (taskId: string) => {
-      const updated = StorageService.toggleTask(dateStr, taskId);
-      setPlan({ ...updated });
-    },
-    [dateStr]
-  );
+  // Toggle and delete run on every tap, so they transform the plan already in state
+  // instead of re-reading and re-parsing the day from localStorage. The updater is a
+  // pure function of `prev` and the write is idempotent, so StrictMode's double
+  // invocation is harmless.
+  const toggleTask = useCallback((taskId: string) => {
+    setPlan((prev) => {
+      const next = togglePlanTask(prev, taskId);
+      if (next !== prev) StorageService.saveDailyPlan(next);
+      return next;
+    });
+  }, []);
 
   const replaceBlockWithTemplate = useCallback(
     (category: TimeOfDay, templateId: string) => {
@@ -68,35 +83,28 @@ export function useDailyPlan(dateStr: string) {
     [dateStr]
   );
 
-  const deleteDailyTask = useCallback(
-    (taskId: string) => {
-      const updated = StorageService.deleteDailyTask(dateStr, taskId);
-      setPlan({ ...updated });
-    },
-    [dateStr]
-  );
+  const deleteDailyTask = useCallback((taskId: string) => {
+    setPlan((prev) => {
+      const next = removePlanTask(prev, taskId);
+      if (next !== prev) StorageService.saveDailyPlan(next);
+      return next;
+    });
+  }, []);
 
   const stats = useMemo(() => {
     let total = 0;
     let completed = 0;
 
-    const categories: TimeOfDay[] = ['morning', 'afternoon', 'evening', 'bedtime'];
-    categories.forEach((cat) => {
-      const block = plan.blocks[cat];
-      if (!block) return;
-      block.sections.forEach((sec) => {
-        sec.tasks.forEach((task) => {
+    for (const cat of TIME_OF_DAY_ORDER) {
+      for (const section of plan.blocks[cat]?.sections ?? []) {
+        for (const task of section.tasks) {
           total += 1;
           if (task.completed) completed += 1;
-        });
-      });
-    });
+        }
+      }
+    }
 
-    return {
-      total,
-      completed,
-      ratio: total > 0 ? completed / total : 0,
-    };
+    return { total, completed, ratio: total > 0 ? completed / total : 0 };
   }, [plan]);
 
   return {

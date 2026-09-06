@@ -9,6 +9,7 @@ import type {
   TimeOfDay,
   WeeklySchedule,
 } from '../types';
+import { TIME_OF_DAY_ORDER } from '../types';
 import { DEFAULT_ROUTINES } from '../data/defaultTemplates';
 import {
   DEFAULT_WEEKLY_SCHEDULE,
@@ -31,6 +32,90 @@ const STORAGE_KEYS = {
   PERSONA_SCHEDULE_PREFIX: 'daycraft_schedule_persona_',
 };
 
+const KEY_PREFIX = 'daycraft_';
+
+const EMPTY_DAY_SCHEDULE: Record<TimeOfDay, string | null> = {
+  morning: null,
+  afternoon: null,
+  evening: null,
+  bedtime: null,
+};
+
+const VALID_PERSONAS: readonly RoutinePersona[] = ['corporate', 'student', 'govt_aspirant', 'general'];
+
+// Flags written by earlier releases; any of them means onboarding already happened.
+const LEGACY_ONBOARDED_KEYS = [
+  STORAGE_KEYS.ONBOARDED,
+  'daycraft_onboarded_v3',
+  'daycraft_onboarded_v2',
+  'daycraft_onboarded_v1',
+];
+
+/**
+ * Parsed-value cache for the keys that are read far more often than they are written
+ * (templates, weekly schedule, install date, active persona).
+ *
+ * Building a single day's plan used to re-parse the full template set once per time
+ * block; every render that touched the store paid the same cost again. Entries are
+ * dropped on write, so the cache can never serve a stale value.
+ *
+ * Values handed out are shared references: treat them as immutable and clone before
+ * mutating (see `saveTemplate`).
+ */
+const readCache = new Map<string, unknown>();
+
+function readJSON<T>(key: string): T | null {
+  if (readCache.has(key)) {
+    return readCache.get(key) as T;
+  }
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as T;
+    readCache.set(key, parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeJSON(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    readCache.set(key, value);
+  } catch {
+    // Quota exceeded or storage unavailable: drop the entry rather than cache a
+    // value that never reached disk.
+    readCache.delete(key);
+  }
+}
+
+function readString(key: string): string | null {
+  if (readCache.has(key)) {
+    return readCache.get(key) as string | null;
+  }
+  try {
+    const raw = localStorage.getItem(key);
+    readCache.set(key, raw);
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+function writeString(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+    readCache.set(key, value);
+  } catch {
+    readCache.delete(key);
+  }
+}
+
+function invalidate(key: string): void {
+  readCache.delete(key);
+}
+
 export function generateId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -52,29 +137,100 @@ export function parseDateKey(dateStr: string): Date {
   return new Date(year, month - 1, day);
 }
 
+/**
+ * Returns a plan with `taskId` toggled, reusing the object identity of every block,
+ * section and task that did not change. Returns the original plan when the task is
+ * not found, so callers can cheaply detect a no-op.
+ *
+ * Structural sharing is what lets the memoized block/task components skip re-rendering
+ * the rest of the day when one checkbox flips.
+ */
+export function togglePlanTask(plan: DailyPlan, taskId: string): DailyPlan {
+  let hit = false;
+
+  const blocks = {} as Record<TimeOfDay, DailyRoutineBlock>;
+  for (const cat of TIME_OF_DAY_ORDER) {
+    const block = plan.blocks[cat];
+    if (!block || hit) {
+      blocks[cat] = block;
+      continue;
+    }
+
+    let blockChanged = false;
+    const sections = block.sections.map((section) => {
+      if (hit || !section.tasks.some((t) => t.id === taskId)) return section;
+
+      blockChanged = true;
+      hit = true;
+      return {
+        ...section,
+        tasks: section.tasks.map((task) => {
+          if (task.id !== taskId) return task;
+          const completed = !task.completed;
+          return {
+            ...task,
+            completed,
+            completedAt: completed ? new Date().toISOString() : undefined,
+          };
+        }),
+      };
+    });
+
+    blocks[cat] = blockChanged ? { ...block, sections } : block;
+  }
+
+  if (!hit) return plan;
+  return { ...plan, blocks, lastModified: new Date().toISOString() };
+}
+
+/** Removes `taskId` from the plan, preserving identity of everything untouched. */
+export function removePlanTask(plan: DailyPlan, taskId: string): DailyPlan {
+  let hit = false;
+
+  const blocks = {} as Record<TimeOfDay, DailyRoutineBlock>;
+  for (const cat of TIME_OF_DAY_ORDER) {
+    const block = plan.blocks[cat];
+    if (!block || hit) {
+      blocks[cat] = block;
+      continue;
+    }
+
+    let blockChanged = false;
+    const sections = block.sections.map((section) => {
+      if (hit || !section.tasks.some((t) => t.id === taskId)) return section;
+
+      blockChanged = true;
+      hit = true;
+      return { ...section, tasks: section.tasks.filter((t) => t.id !== taskId) };
+    });
+
+    blocks[cat] = blockChanged ? { ...block, sections } : block;
+  }
+
+  if (!hit) return plan;
+  return { ...plan, blocks, lastModified: new Date().toISOString() };
+}
+
 export class StorageService {
   // ================= PERSONA / ONBOARDING =================
 
   static getSelectedPersona(): RoutinePersona | null {
-    try {
-      const p = localStorage.getItem(STORAGE_KEYS.SELECTED_PERSONA);
-      if (p && ['corporate', 'student', 'govt_aspirant', 'general'].includes(p)) {
-        return p as RoutinePersona;
-      }
-      return null;
-    } catch {
-      return null;
+    const p = readString(STORAGE_KEYS.SELECTED_PERSONA);
+    if (p && VALID_PERSONAS.includes(p as RoutinePersona)) {
+      return p as RoutinePersona;
     }
+    return null;
+  }
+
+  /** The persona whose templates/schedule are currently in scope. */
+  private static activePersona(fallback: RoutinePersona = 'govt_aspirant'): RoutinePersona {
+    return this.getSelectedPersona() || fallback;
   }
 
   static setSelectedPersona(persona: RoutinePersona): void {
-    try {
-      localStorage.setItem(STORAGE_KEYS.SELECTED_PERSONA, persona);
-      localStorage.setItem(STORAGE_KEYS.ONBOARDED, 'true');
-      localStorage.setItem('daycraft_onboarded_v3', 'true');
-    } catch {
-      // ignore
-    }
+    writeString(STORAGE_KEYS.SELECTED_PERSONA, persona);
+    writeString(STORAGE_KEYS.ONBOARDED, 'true');
+    writeString('daycraft_onboarded_v3', 'true');
   }
 
   static hasSelectedPersona(): boolean {
@@ -84,10 +240,7 @@ export class StorageService {
       }
       // Check legacy or onboarding completion flags
       if (
-        localStorage.getItem(STORAGE_KEYS.ONBOARDED) === 'true' ||
-        localStorage.getItem('daycraft_onboarded_v3') === 'true' ||
-        localStorage.getItem('daycraft_onboarded_v2') === 'true' ||
-        localStorage.getItem('daycraft_onboarded_v1') === 'true'
+        LEGACY_ONBOARDED_KEYS.some((key) => readString(key) === 'true')
       ) {
         return true;
       }
@@ -121,84 +274,180 @@ export class StorageService {
    * If user added custom routines while in this blueprint, they are persisted and returned.
    */
   static getTemplates(): RoutineTemplate[] {
-    const activePersona = this.getSelectedPersona() || 'govt_aspirant';
-    const personaKey = STORAGE_KEYS.PERSONA_TEMPLATES_PREFIX + activePersona;
-    try {
-      const data = localStorage.getItem(personaKey);
-      if (data) {
-        const loaded: RoutineTemplate[] = JSON.parse(data);
-        localStorage.setItem(STORAGE_KEYS.TEMPLATES, data);
-        return loaded;
-      }
-    } catch {
-      // ignore
+    const personaKey = STORAGE_KEYS.PERSONA_TEMPLATES_PREFIX + this.activePersona();
+    const loaded = readJSON<RoutineTemplate[]>(personaKey);
+    if (Array.isArray(loaded)) {
+      return loaded;
     }
 
     // First time for this persona: initialize with this blueprint's defaults
-    const defaults = this.getDefaultTemplatesForPersona(activePersona);
-    try {
-      const json = JSON.stringify(defaults);
-      localStorage.setItem(personaKey, json);
-      localStorage.setItem(STORAGE_KEYS.TEMPLATES, json);
-    } catch {
-      // ignore
-    }
+    const defaults = this.getDefaultTemplatesForPersona(this.activePersona());
+    writeJSON(personaKey, defaults);
     return defaults;
   }
 
   static getTemplateById(id: string): RoutineTemplate | undefined {
-    const templates = this.getTemplates();
-    return templates.find((t) => t.id === id);
+    return this.getTemplates().find((t) => t.id === id);
   }
 
   static saveTemplates(templates: RoutineTemplate[]): void {
-    const activePersona = this.getSelectedPersona() || 'govt_aspirant';
-    const personaKey = STORAGE_KEYS.PERSONA_TEMPLATES_PREFIX + activePersona;
-    try {
-      const json = JSON.stringify(templates);
-      localStorage.setItem(personaKey, json);
-      localStorage.setItem(STORAGE_KEYS.TEMPLATES, json);
-    } catch {
-      // ignore
-    }
+    writeJSON(STORAGE_KEYS.PERSONA_TEMPLATES_PREFIX + this.activePersona(), templates);
   }
 
   /**
    * Adds or updates a routine in the CURRENT blueprint only.
    * It persists permanently under this blueprint even when switching back and forth.
+   * Also immediately syncs any active daily plans (today and future) using this template.
    */
   static saveTemplate(template: RoutineTemplate): void {
-    const activePersona = this.getSelectedPersona() || 'govt_aspirant';
-    const templates = this.getTemplates();
-    const index = templates.findIndex((t) => t.id === template.id);
     const updated: RoutineTemplate = {
       ...template,
-      persona: activePersona,
+      persona: this.activePersona(),
       updatedAt: new Date().toISOString(),
     };
 
+    // Copy rather than mutate: `getTemplates()` may hand back the cached array.
+    const templates = this.getTemplates().slice();
+    const index = templates.findIndex((t) => t.id === template.id);
     if (index >= 0) {
       templates[index] = updated;
     } else {
       templates.push(updated);
     }
     this.saveTemplates(templates);
+
+    // Immediately sync changes to today's and upcoming daily plans
+    this.syncUpdatedTemplateToActivePlans(updated);
+  }
+
+  /**
+   * Automatically updates any active daily routine block (today and future dates)
+   * that uses this routine template, so editing a routine immediately reflects
+   * on the homepage without needing to manually re-select the routine.
+   *
+   * Preserves:
+   * - Completion status of tasks (matched by templateTaskId or task title)
+   * - One-off custom tasks added directly to the daily schedule
+   */
+  static syncUpdatedTemplateToActivePlans(template: RoutineTemplate): void {
+    const todayStr = formatDateKey(new Date());
+
+    // Gather today and all recorded plan dates that are >= todayStr
+    const candidateDates = new Set<string>();
+    candidateDates.add(todayStr);
+
+    this.getStoredPlanDates().forEach((d) => {
+      if (d >= todayStr) {
+        candidateDates.add(d);
+      }
+    });
+
+    candidateDates.forEach((dateKey) => {
+      const storageKey = STORAGE_KEYS.DAILY_PREFIX + dateKey;
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) return;
+        const plan: DailyPlan = JSON.parse(raw);
+        let modified = false;
+
+        TIME_OF_DAY_ORDER.forEach((cat) => {
+          const block = plan.blocks[cat];
+          if (!block) return;
+
+          // Check if this block corresponds to the edited template
+          // Either by routineTemplateId or by title matching if routineTemplateId was missing
+          if (block.routineTemplateId === template.id || (!block.isCustom && block.routineTitle === template.title)) {
+            modified = true;
+
+            // 1. Gather completion status of existing tasks and any one-off tasks
+            const completedTaskIds = new Set<string>();
+            const completedTaskTitles = new Set<string>();
+            const oneOffTasks: DailyTask[] = [];
+
+            block.sections.forEach((sec) => {
+              sec.tasks.forEach((task) => {
+                if (task.isOneOff) {
+                  oneOffTasks.push(task);
+                } else if (task.completed) {
+                  if (task.templateTaskId) {
+                    completedTaskIds.add(task.templateTaskId);
+                  }
+                  completedTaskTitles.add(task.title.trim().toLowerCase());
+                }
+              });
+            });
+
+            // 2. Instantiate a fresh block from the updated template
+            const newBlock = this.instantiateBlockFromTemplate(template);
+
+            // 3. Restore completed state for matching tasks
+            newBlock.sections.forEach((sec) => {
+              sec.tasks.forEach((task) => {
+                if (
+                  (task.templateTaskId && completedTaskIds.has(task.templateTaskId)) ||
+                  completedTaskTitles.has(task.title.trim().toLowerCase())
+                ) {
+                  task.completed = true;
+                }
+              });
+            });
+
+            // 4. Preserve any one-off tasks in the last section
+            if (oneOffTasks.length > 0 && newBlock.sections.length > 0) {
+              const lastSection = newBlock.sections[newBlock.sections.length - 1];
+              lastSection.tasks.push(...oneOffTasks);
+            }
+
+            plan.blocks[cat] = newBlock;
+          }
+        });
+
+        if (modified) {
+          plan.lastModified = new Date().toISOString();
+          localStorage.setItem(storageKey, JSON.stringify(plan));
+        }
+      } catch {
+        // ignore
+      }
+    });
   }
 
   static deleteTemplate(id: string): void {
     const templates = this.getTemplates().filter((t) => t.id !== id);
     this.saveTemplates(templates);
+
+    // If today's block was using this template, mark it as isCustom: true so it doesn't break
+    const todayStr = formatDateKey(new Date());
+    const storageKey = STORAGE_KEYS.DAILY_PREFIX + todayStr;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const plan: DailyPlan = JSON.parse(raw);
+        let modified = false;
+        TIME_OF_DAY_ORDER.forEach((cat) => {
+          if (plan.blocks[cat]?.routineTemplateId === id) {
+            plan.blocks[cat].isCustom = true;
+            plan.blocks[cat].routineTemplateId = undefined;
+            modified = true;
+          }
+        });
+        if (modified) {
+          localStorage.setItem(storageKey, JSON.stringify(plan));
+        }
+      }
+    } catch {
+      // ignore
+    }
   }
 
   static duplicateTemplate(id: string): RoutineTemplate | null {
     const original = this.getTemplateById(id);
     if (!original) return null;
 
-    const activePersona = this.getSelectedPersona() || 'govt_aspirant';
     const cloned: RoutineTemplate = {
       ...original,
       id: generateId(),
-      persona: activePersona,
+      persona: this.activePersona(),
       title: `${original.title} (Copy)`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -223,25 +472,13 @@ export class StorageService {
    * If the user previously altered this blueprint's schedule, those changes are preserved.
    */
   static getWeeklySchedule(): WeeklySchedule {
-    const activePersona = this.getSelectedPersona() || 'corporate';
-    const personaKey = STORAGE_KEYS.PERSONA_SCHEDULE_PREFIX + activePersona;
-    try {
-      const data = localStorage.getItem(personaKey);
-      if (data) {
-        return JSON.parse(data);
-      }
-    } catch {
-      // ignore
-    }
+    const persona = this.activePersona('corporate');
+    const personaKey = STORAGE_KEYS.PERSONA_SCHEDULE_PREFIX + persona;
+    const loaded = readJSON<WeeklySchedule>(personaKey);
+    if (loaded) return loaded;
 
-    const defaultSched = this.getDefaultScheduleForPersona(activePersona);
-    try {
-      const json = JSON.stringify(defaultSched);
-      localStorage.setItem(personaKey, json);
-      localStorage.setItem(STORAGE_KEYS.SCHEDULE, json);
-    } catch {
-      // ignore
-    }
+    const defaultSched = this.getDefaultScheduleForPersona(persona);
+    writeJSON(personaKey, defaultSched);
     return defaultSched;
   }
 
@@ -249,15 +486,7 @@ export class StorageService {
    * Saves the weekly schedule for the active blueprint.
    */
   static saveWeeklySchedule(schedule: WeeklySchedule): void {
-    const activePersona = this.getSelectedPersona() || 'corporate';
-    const personaKey = STORAGE_KEYS.PERSONA_SCHEDULE_PREFIX + activePersona;
-    try {
-      const json = JSON.stringify(schedule);
-      localStorage.setItem(personaKey, json);
-      localStorage.setItem(STORAGE_KEYS.SCHEDULE, json);
-    } catch {
-      // ignore
-    }
+    writeJSON(STORAGE_KEYS.PERSONA_SCHEDULE_PREFIX + this.activePersona('corporate'), schedule);
   }
 
   /**
@@ -287,16 +516,10 @@ export class StorageService {
     if (dateKey >= todayStr) {
       const dateObj = parseDateKey(dateKey);
       const dayOfWeek = dateObj.getDay() as DayOfWeek;
-      const daySchedule = sched[dayOfWeek] || {
-        morning: null,
-        afternoon: null,
-        evening: null,
-        bedtime: null,
-      };
+      const daySchedule = sched[dayOfWeek] || EMPTY_DAY_SCHEDULE;
 
       const plan = this.getDailyPlan(dateKey);
-      const categories: TimeOfDay[] = ['morning', 'afternoon', 'evening', 'bedtime'];
-      categories.forEach((cat) => {
+      TIME_OF_DAY_ORDER.forEach((cat) => {
         const templateId = daySchedule[cat];
         if (templateId) {
           const template = templates.find((t) => t.id === templateId) || this.getTemplateById(templateId);
@@ -316,27 +539,28 @@ export class StorageService {
 
   // ================= DAILY PLANS (SNAPSHOTS) =================
 
+  /**
+   * Read on nearly every store access and every date-navigation render, so it is
+   * cached in memory after the first read.
+   */
   static getInstallDate(): string {
-    try {
-      let date = localStorage.getItem(STORAGE_KEYS.INSTALL_DATE);
-      if (!date) {
-        date = formatDateKey(new Date());
-        localStorage.setItem(STORAGE_KEYS.INSTALL_DATE, date);
-      }
-      return date;
-    } catch {
-      return formatDateKey(new Date());
-    }
+    const cached = readString(STORAGE_KEYS.INSTALL_DATE);
+    if (cached) return cached;
+
+    const date = formatDateKey(new Date());
+    writeString(STORAGE_KEYS.INSTALL_DATE, date);
+    return date;
   }
 
   static purgePreInstallPlans(): void {
     try {
       const installDate = this.getInstallDate();
-      const data = localStorage.getItem(STORAGE_KEYS.PLAN_INDEX);
-      if (data) {
-        const list: string[] = JSON.parse(data);
+      const list = readJSON<string[]>(STORAGE_KEYS.PLAN_INDEX);
+      if (list) {
         const filtered = list.filter((d) => d >= installDate);
-        localStorage.setItem(STORAGE_KEYS.PLAN_INDEX, JSON.stringify(filtered));
+        if (filtered.length !== list.length) {
+          writeJSON(STORAGE_KEYS.PLAN_INDEX, filtered);
+        }
       }
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -348,33 +572,33 @@ export class StorageService {
           }
         }
       }
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
+      keysToRemove.forEach((k) => {
+        localStorage.removeItem(k);
+        invalidate(k);
+      });
     } catch {
       // ignore
     }
   }
 
+  /** Recorded plan dates on or after install, newest first. */
   static getStoredPlanDates(): string[] {
-    try {
-      const installDate = this.getInstallDate();
-      const data = localStorage.getItem(STORAGE_KEYS.PLAN_INDEX);
-      if (!data) return [];
-      const list: string[] = JSON.parse(data);
-      const valid = list.filter((d) => d >= installDate);
-      return valid.sort((a, b) => b.localeCompare(a));
-    } catch {
-      return [];
-    }
+    const installDate = this.getInstallDate();
+    const list = readJSON<string[]>(STORAGE_KEYS.PLAN_INDEX);
+    if (!Array.isArray(list)) return [];
+    return list.filter((d) => d >= installDate).sort((a, b) => b.localeCompare(a));
   }
 
   private static recordPlanDate(dateStr: string): void {
-    const installDate = this.getInstallDate();
-    if (dateStr < installDate) return;
+    if (dateStr < this.getInstallDate()) return;
 
-    const dates = new Set(this.getStoredPlanDates());
-    dates.add(dateStr);
-    const sorted = Array.from(dates).sort((a, b) => b.localeCompare(a));
-    localStorage.setItem(STORAGE_KEYS.PLAN_INDEX, JSON.stringify(sorted));
+    const dates = this.getStoredPlanDates();
+    // Already indexed: skip the re-serialize entirely (the common case, since every
+    // task toggle re-saves the plan).
+    if (dates.includes(dateStr)) return;
+
+    dates.push(dateStr);
+    writeJSON(STORAGE_KEYS.PLAN_INDEX, dates.sort((a, b) => b.localeCompare(a)));
   }
 
   /**
@@ -423,51 +647,50 @@ export class StorageService {
    * If a snapshot already exists in storage, it is returned untouched.
    * If not, the weekly schedule rules for that day of the week are applied to create a new snapshot.
    */
-  static getDailyPlan(dateStr: string): DailyPlan {
-    const storageKey = STORAGE_KEYS.DAILY_PREFIX + dateStr;
+  private static readStoredPlan(dateStr: string): DailyPlan | null {
     try {
-      const existing = localStorage.getItem(storageKey);
-      if (existing) {
-        return JSON.parse(existing);
-      }
+      const existing = localStorage.getItem(STORAGE_KEYS.DAILY_PREFIX + dateStr);
+      return existing ? (JSON.parse(existing) as DailyPlan) : null;
     } catch {
-      // fallback to creating fresh plan
+      return null;
     }
+  }
 
-    // Build fresh daily plan from schedule rules
-    const dateObj = parseDateKey(dateStr);
-    const dayOfWeek = dateObj.getDay() as DayOfWeek;
-    const schedule = this.getWeeklySchedule();
-    const daySchedule = schedule[dayOfWeek] || {
-      morning: null,
-      afternoon: null,
-      evening: null,
-      bedtime: null,
-    };
+  /** Builds (but does not persist) the plan implied by the weekly schedule for a date. */
+  private static buildPlanFromSchedule(dateStr: string): DailyPlan {
+    const dayOfWeek = parseDateKey(dateStr).getDay() as DayOfWeek;
+    const daySchedule = this.getWeeklySchedule()[dayOfWeek] || EMPTY_DAY_SCHEDULE;
 
-    const categories: TimeOfDay[] = ['morning', 'afternoon', 'evening', 'bedtime'];
-    const blocks: Record<TimeOfDay, DailyRoutineBlock> = {} as Record<TimeOfDay, DailyRoutineBlock>;
+    // One template lookup pass, so building a plan parses the template set once
+    // instead of once per time block.
+    const templates = this.getTemplates();
+    const blocks = {} as Record<TimeOfDay, DailyRoutineBlock>;
 
-    categories.forEach((cat) => {
+    TIME_OF_DAY_ORDER.forEach((cat) => {
       const templateId = daySchedule[cat];
-      if (templateId) {
-        const template = this.getTemplateById(templateId);
-        if (template) {
-          blocks[cat] = this.instantiateBlockFromTemplate(template);
-          return;
-        }
-      }
-      blocks[cat] = this.createEmptyBlock(cat);
+      const template = templateId ? templates.find((t) => t.id === templateId) : undefined;
+      blocks[cat] = template
+        ? this.instantiateBlockFromTemplate(template)
+        : this.createEmptyBlock(cat);
     });
 
-    const newPlan: DailyPlan = {
-      date: dateStr,
-      blocks,
-      lastModified: new Date().toISOString(),
-    };
+    return { date: dateStr, blocks, lastModified: new Date().toISOString() };
+  }
 
-    const installDate = this.getInstallDate();
-    if (dateStr >= installDate) {
+  /**
+   * Read-only view of a day's plan. Unlike `getDailyPlan` this never writes, so it is
+   * safe to call from a React render pass.
+   */
+  static peekDailyPlan(dateStr: string): DailyPlan {
+    return this.readStoredPlan(dateStr) ?? this.buildPlanFromSchedule(dateStr);
+  }
+
+  static getDailyPlan(dateStr: string): DailyPlan {
+    const existing = this.readStoredPlan(dateStr);
+    if (existing) return existing;
+
+    const newPlan = this.buildPlanFromSchedule(dateStr);
+    if (dateStr >= this.getInstallDate()) {
       this.saveDailyPlan(newPlan);
     }
     return newPlan;
@@ -477,12 +700,16 @@ export class StorageService {
     const installDate = this.getInstallDate();
     if (plan.date < installDate) return;
 
-    const storageKey = STORAGE_KEYS.DAILY_PREFIX + plan.date;
     const updatedPlan: DailyPlan = {
       ...plan,
       lastModified: new Date().toISOString(),
     };
-    localStorage.setItem(storageKey, JSON.stringify(updatedPlan));
+    try {
+      localStorage.setItem(STORAGE_KEYS.DAILY_PREFIX + plan.date, JSON.stringify(updatedPlan));
+    } catch {
+      // Storage full or unavailable: keep the in-memory plan rather than crashing.
+      return;
+    }
     this.recordPlanDate(plan.date);
   }
 
@@ -617,28 +844,11 @@ export class StorageService {
    */
   static toggleTask(dateStr: string, taskId: string): DailyPlan {
     const plan = this.getDailyPlan(dateStr);
-    let found = false;
-
-    const categories: TimeOfDay[] = ['morning', 'afternoon', 'evening', 'bedtime'];
-    for (const cat of categories) {
-      const block = plan.blocks[cat];
-      if (!block) continue;
-      for (const sec of block.sections) {
-        const task = sec.tasks.find((t) => t.id === taskId);
-        if (task) {
-          task.completed = !task.completed;
-          task.completedAt = task.completed ? new Date().toISOString() : undefined;
-          found = true;
-          break;
-        }
-      }
-      if (found) break;
+    const updated = togglePlanTask(plan, taskId);
+    if (updated !== plan) {
+      this.saveDailyPlan(updated);
     }
-
-    if (found) {
-      this.saveDailyPlan(plan);
-    }
-    return plan;
+    return updated;
   }
 
   /**
@@ -646,18 +856,11 @@ export class StorageService {
    */
   static deleteDailyTask(dateStr: string, taskId: string): DailyPlan {
     const plan = this.getDailyPlan(dateStr);
-    const categories: TimeOfDay[] = ['morning', 'afternoon', 'evening', 'bedtime'];
-
-    for (const cat of categories) {
-      const block = plan.blocks[cat];
-      if (!block) continue;
-      for (const sec of block.sections) {
-        sec.tasks = sec.tasks.filter((t) => t.id !== taskId);
-      }
+    const updated = removePlanTask(plan, taskId);
+    if (updated !== plan) {
+      this.saveDailyPlan(updated);
     }
-
-    this.saveDailyPlan(plan);
-    return plan;
+    return updated;
   }
 
   // ================= BACKUP & RESTORE =================
@@ -687,20 +890,22 @@ export class StorageService {
   static importData(jsonStr: string): boolean {
     try {
       const data = JSON.parse(jsonStr);
-      if (!data.templates || !data.schedule) {
+      if (!Array.isArray(data.templates) || !data.schedule) {
         return false;
       }
 
-      localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(data.templates));
-      localStorage.setItem(STORAGE_KEYS.SCHEDULE, JSON.stringify(data.schedule));
+      // Templates and schedules are read from blueprint-scoped keys, so imports must
+      // land there too; writing only the legacy flat keys made import a silent no-op.
+      this.saveTemplates(data.templates);
+      this.saveWeeklySchedule(data.schedule);
 
       if (data.plans && typeof data.plans === 'object') {
         const dates: string[] = [];
         for (const [dateKey, planObj] of Object.entries(data.plans)) {
-          localStorage.setItem(STORAGE_KEYS.DAILY_PREFIX + dateKey, JSON.stringify(planObj));
+          writeJSON(STORAGE_KEYS.DAILY_PREFIX + dateKey, planObj);
           dates.push(dateKey);
         }
-        localStorage.setItem(STORAGE_KEYS.PLAN_INDEX, JSON.stringify(dates));
+        writeJSON(STORAGE_KEYS.PLAN_INDEX, dates.sort((a, b) => b.localeCompare(a)));
       }
 
       return true;
@@ -709,16 +914,42 @@ export class StorageService {
     }
   }
 
+  /**
+   * Wipes DayCraft's own data only. This used to call `localStorage.clear()`, which
+   * also destroyed unrelated keys on the same origin.
+   */
   static resetToDefaults(): void {
-    localStorage.clear();
-    localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(DEFAULT_ROUTINES));
-    localStorage.setItem(STORAGE_KEYS.SCHEDULE, JSON.stringify(DEFAULT_WEEKLY_SCHEDULE));
+    try {
+      const ownKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(KEY_PREFIX)) ownKeys.push(key);
+      }
+      ownKeys.forEach((k) => localStorage.removeItem(k));
+    } catch {
+      // ignore
+    }
+    readCache.clear();
+
+    writeJSON(STORAGE_KEYS.TEMPLATES, DEFAULT_ROUTINES);
+    writeJSON(STORAGE_KEYS.SCHEDULE, DEFAULT_WEEKLY_SCHEDULE);
   }
 }
 
-// Auto-purge any pre-install records on initialization
-try {
-  StorageService.purgePreInstallPlans();
-} catch {
-  // ignore in non-browser environments
+// Auto-purge any pre-install records once the app is idle. This walks every key in
+// localStorage, so it stays off the module-evaluation path that blocks first paint.
+if (typeof window !== 'undefined') {
+  const purge = () => {
+    try {
+      StorageService.purgePreInstallPlans();
+    } catch {
+      // ignore in non-browser environments
+    }
+  };
+
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(purge, { timeout: 2000 });
+  } else {
+    setTimeout(purge, 0);
+  }
 }
