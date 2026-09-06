@@ -11,6 +11,8 @@ interface RoutineBlockCardProps {
   onToggleTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
   onAddOneOffTask: (category: TimeOfDay) => void;
+  /** Past days are frozen: hide the mutating affordances entirely. */
+  readOnly?: boolean;
 }
 
 export const RoutineBlockCard: React.FC<RoutineBlockCardProps> = React.memo(({
@@ -20,6 +22,7 @@ export const RoutineBlockCard: React.FC<RoutineBlockCardProps> = React.memo(({
   onToggleTask,
   onDeleteTask,
   onAddOneOffTask,
+  readOnly = false,
 }) => {
   const meta = TIME_BLOCK_CONFIG[category];
 
@@ -56,29 +59,33 @@ export const RoutineBlockCard: React.FC<RoutineBlockCardProps> = React.memo(({
           </h2>
         </div>
 
-        <button
-          type="button"
-          id={`btn-change-${category}`}
-          className="btn-change-block"
-          onClick={handleChangeBlock}
-          title={`Change ${meta.label} routine`}
-        >
-          <RefreshCw size={12} />
-          <span>Change</span>
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            id={`btn-change-${category}`}
+            className="btn-change-block"
+            onClick={handleChangeBlock}
+            title={`Change ${meta.label} routine`}
+          >
+            <RefreshCw size={12} />
+            <span>Change</span>
+          </button>
+        )}
       </div>
 
       {taskCount === 0 ? (
         <div style={{ padding: '1.25rem', textAlign: 'center', color: 'var(--text-muted)' }}>
           <p style={{ fontSize: '0.85rem' }}>No tasks planned for this {meta.label.toLowerCase()}.</p>
-          <button
-            type="button"
-            className="btn-secondary"
-            style={{ marginTop: '0.6rem', padding: '0.35rem 0.85rem', fontSize: '0.78rem' }}
-            onClick={handleChangeBlock}
-          >
-            Choose a Routine
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ marginTop: '0.6rem', padding: '0.35rem 0.85rem', fontSize: '0.78rem' }}
+              onClick={handleChangeBlock}
+            >
+              Choose a Routine
+            </button>
+          )}
         </div>
       ) : (
         block.sections.map((section) => {
@@ -93,6 +100,7 @@ export const RoutineBlockCard: React.FC<RoutineBlockCardProps> = React.memo(({
                     task={task}
                     onToggle={onToggleTask}
                     onDelete={onDeleteTask}
+                    readOnly={readOnly}
                   />
                 ))}
               </div>
@@ -102,15 +110,17 @@ export const RoutineBlockCard: React.FC<RoutineBlockCardProps> = React.memo(({
       )}
 
       <div className="block-footer-action">
-        <button
-          type="button"
-          id={`btn-add-task-${category}`}
-          className="btn-add-inline-task"
-          onClick={handleAddTask}
-        >
-          <Plus size={14} />
-          <span>Add task to today's {meta.label.toLowerCase()}</span>
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            id={`btn-add-task-${category}`}
+            className="btn-add-inline-task"
+            onClick={handleAddTask}
+          >
+            <Plus size={14} />
+            <span>Add task to today's {meta.label.toLowerCase()}</span>
+          </button>
+        )}
         {taskCount > 0 && (
           <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
             {completedCount}/{taskCount} done

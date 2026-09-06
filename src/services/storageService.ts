@@ -212,6 +212,25 @@ export function removePlanTask(plan: DailyPlan, taskId: string): DailyPlan {
 }
 
 export class StorageService {
+  /** Today's date key, recomputed per call so a running app survives a day rollover. */
+  static getTodayKey(): string {
+    return formatDateKey(new Date());
+  }
+
+  /**
+   * A day is past once the calendar date has rolled over. Past days are historical
+   * records and must never change: completion state is evidence of what actually
+   * happened, and back-dating it silently corrupts History.
+   */
+  static isPastDate(dateStr: string): boolean {
+    return dateStr < this.getTodayKey();
+  }
+
+  /** Today and any future day may be edited; earlier days are frozen. */
+  static isDateEditable(dateStr: string): boolean {
+    return !this.isPastDate(dateStr) && dateStr >= this.getInstallDate();
+  }
+
   // ================= PERSONA / ONBOARDING =================
 
   static getSelectedPersona(): RoutinePersona | null {
@@ -690,15 +709,17 @@ export class StorageService {
     if (existing) return existing;
 
     const newPlan = this.buildPlanFromSchedule(dateStr);
-    if (dateStr >= this.getInstallDate()) {
-      this.saveDailyPlan(newPlan);
-    }
+    // Only persist for editable days. Previously, merely viewing a past date wrote a
+    // fabricated plan for it and added it to the history index.
+    this.saveDailyPlan(newPlan);
     return newPlan;
   }
 
   static saveDailyPlan(plan: DailyPlan): void {
-    const installDate = this.getInstallDate();
-    if (plan.date < installDate) return;
+    // Authoritative freeze. Toggle, delete, add-one-off, change-block, clear and
+    // revert all reach storage through here, so guarding this one path covers every
+    // route into a past day's record.
+    if (!this.isDateEditable(plan.date)) return;
 
     const updatedPlan: DailyPlan = {
       ...plan,

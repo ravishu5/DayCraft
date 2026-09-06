@@ -1068,3 +1068,16 @@ body {
 .route-loading {
   min-height: 60vh;
 }
+
+/* Past days are historical records: show the outcome, refuse the edit. The rows stay
+   fully legible (this is the day's evidence) but read as inert rather than tappable. */
+.task-item-row.is-readonly {
+  cursor: default;
+}
+.task-item-row.is-readonly:hover {
+  background: transparent;
+}
+.task-item-row.is-readonly .task-checkbox {
+  cursor: default;
+  opacity: 0.75;
+}

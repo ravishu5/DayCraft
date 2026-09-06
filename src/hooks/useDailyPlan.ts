@@ -11,6 +11,10 @@ export function useDailyPlan(dateStr: string) {
   const [plan, setPlan] = useState<DailyPlan>(() => StorageService.getDailyPlan(dateStr));
   const loadedDateRef = useRef(dateStr);
 
+  // Past days are frozen. Storage refuses the write regardless; mirroring the rule
+  // here keeps React state from showing an edit that was never persisted.
+  const isReadOnly = StorageService.isPastDate(dateStr);
+
   // Reload only when the date actually changes. Running unconditionally re-read and
   // re-parsed the plan on every mount, right after the initializer had just loaded it,
   // costing a second render on each tab switch back to Today.
@@ -29,19 +33,21 @@ export function useDailyPlan(dateStr: string) {
   // pure function of `prev` and the write is idempotent, so StrictMode's double
   // invocation is harmless.
   const toggleTask = useCallback((taskId: string) => {
+    if (isReadOnly) return;
     setPlan((prev) => {
       const next = togglePlanTask(prev, taskId);
       if (next !== prev) StorageService.saveDailyPlan(next);
       return next;
     });
-  }, []);
+  }, [isReadOnly]);
 
   const replaceBlockWithTemplate = useCallback(
     (category: TimeOfDay, templateId: string) => {
+      if (isReadOnly) return;
       const updated = StorageService.replaceBlockWithTemplate(dateStr, category, templateId);
       setPlan({ ...updated });
     },
-    [dateStr]
+    [dateStr, isReadOnly]
   );
 
   const replaceBlockWithCustom = useCallback(
@@ -50,26 +56,29 @@ export function useDailyPlan(dateStr: string) {
       title: string,
       sections: { title: string; tasks: { title: string; time?: string; notes?: string }[] }[]
     ) => {
+      if (isReadOnly) return;
       const updated = StorageService.replaceBlockWithCustom(dateStr, category, title, sections);
       setPlan({ ...updated });
     },
-    [dateStr]
+    [dateStr, isReadOnly]
   );
 
   const clearBlock = useCallback(
     (category: TimeOfDay) => {
+      if (isReadOnly) return;
       const updated = StorageService.clearBlock(dateStr, category);
       setPlan({ ...updated });
     },
-    [dateStr]
+    [dateStr, isReadOnly]
   );
 
   const revertBlockToSchedule = useCallback(
     (category: TimeOfDay) => {
+      if (isReadOnly) return;
       const updated = StorageService.revertBlockToSchedule(dateStr, category);
       setPlan({ ...updated });
     },
-    [dateStr]
+    [dateStr, isReadOnly]
   );
 
   const addOneOffTask = useCallback(
@@ -77,19 +86,21 @@ export function useDailyPlan(dateStr: string) {
       category: TimeOfDay,
       taskData: { title: string; time?: string; notes?: string; sectionId?: string }
     ) => {
+      if (isReadOnly) return;
       const updated = StorageService.addOneOffTask(dateStr, category, taskData);
       setPlan({ ...updated });
     },
-    [dateStr]
+    [dateStr, isReadOnly]
   );
 
   const deleteDailyTask = useCallback((taskId: string) => {
+    if (isReadOnly) return;
     setPlan((prev) => {
       const next = removePlanTask(prev, taskId);
       if (next !== prev) StorageService.saveDailyPlan(next);
       return next;
     });
-  }, []);
+  }, [isReadOnly]);
 
   const stats = useMemo(() => {
     let total = 0;
@@ -110,6 +121,7 @@ export function useDailyPlan(dateStr: string) {
   return {
     plan,
     stats,
+    isReadOnly,
     reload,
     toggleTask,
     replaceBlockWithTemplate,

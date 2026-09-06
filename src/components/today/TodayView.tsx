@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import type { TimeOfDay } from '../../types';
 import { TIME_OF_DAY_ORDER } from '../../types';
 import { useDailyPlan } from '../../hooks/useDailyPlan';
@@ -25,6 +25,7 @@ export const TodayView: React.FC<TodayViewProps> = ({ currentDateStr, onDateChan
     revertBlockToSchedule,
     addOneOffTask,
     deleteDailyTask,
+    isReadOnly,
   } = useDailyPlan(currentDateStr);
 
   const { getTemplatesByCategory } = useRoutines();
@@ -78,7 +79,7 @@ export const TodayView: React.FC<TodayViewProps> = ({ currentDateStr, onDateChan
         <div className="view-header-top">
           <div>
             <div className="date-eyebrow">
-              {isToday ? "TODAY'S FLOW" : 'PAST SCHEDULE'}
+              {isToday ? "TODAY'S FLOW" : isReadOnly ? 'PAST SCHEDULE' : 'UPCOMING'}
             </div>
             <h1 className="view-title">{formattedDate}</h1>
           </div>
@@ -137,7 +138,14 @@ export const TodayView: React.FC<TodayViewProps> = ({ currentDateStr, onDateChan
             }}
           >
             <span style={{ color: 'var(--text-secondary)' }}>
-              Viewing past saved schedule for <strong>{formattedDate}</strong>
+              {isReadOnly ? (
+                <>
+                  <Lock size={11} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
+                  Past day — this record is locked and cannot be edited.
+                </>
+              ) : (
+                <>Planning ahead for <strong>{formattedDate}</strong>. Changes are saved.</>
+              )}
             </span>
             <button
               type="button"
@@ -183,13 +191,14 @@ export const TodayView: React.FC<TodayViewProps> = ({ currentDateStr, onDateChan
               onToggleTask={toggleTask}
               onDeleteTask={deleteDailyTask}
               onAddOneOffTask={setAddingTaskCategory}
+              readOnly={isReadOnly}
             />
           );
         })}
       </div>
 
       {/* Change Routine Block Modal */}
-      {changingCategory && (
+      {changingCategory && !isReadOnly && (
         <ChangeBlockModal
           category={changingCategory}
           currentTemplateId={plan.blocks[changingCategory]?.routineTemplateId}
@@ -216,7 +225,7 @@ export const TodayView: React.FC<TodayViewProps> = ({ currentDateStr, onDateChan
       )}
 
       {/* Add One-Off Task Modal */}
-      {addingTaskCategory && (
+      {addingTaskCategory && !isReadOnly && (
         <AddOneOffTaskModal
           category={addingTaskCategory}
           sections={plan.blocks[addingTaskCategory]?.sections || []}
