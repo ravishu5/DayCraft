@@ -1,5 +1,5 @@
 export const APP_CURRENT_VERSION = '1.0.0';
-export const APP_BUILD_NUMBER = 2;
+export const APP_BUILD_NUMBER = 3;
 
 export const RELEASES_PAGE_URL = 'https://github.com/ravishu5/DayCraft/releases';
 
