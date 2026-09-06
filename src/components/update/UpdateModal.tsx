@@ -1,6 +1,7 @@
 import React from 'react';
 import { Download, RefreshCw, AlertTriangle, Sparkles, X } from 'lucide-react';
 import type { AppVersionConfig } from '../../types/version';
+import { RELEASES_PAGE_URL } from '../../constants/version';
 
 interface UpdateModalProps {
   currentVersion: string;
@@ -25,8 +26,8 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
   if (!config) return null;
 
   const handleDownload = () => {
-    const targetUrl = config.downloadUrl || 'https://github.com/ravishu5/DayCraft/releases';
-    window.open(targetUrl, '_blank');
+    const targetUrl = config.downloadUrl || RELEASES_PAGE_URL;
+    window.open(targetUrl, '_blank', 'noopener,noreferrer');
   };
 
   return (

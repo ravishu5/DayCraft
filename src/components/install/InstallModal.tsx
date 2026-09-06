@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, Smartphone, Download, Share, PlusSquare, Copy, Check, QrCode, Monitor } from 'lucide-react';
 import QRCode from 'qrcode';
 import type { BeforeInstallPromptEvent } from '../../types';
+import { LATEST_APK_URL } from '../../constants/version';
 
 interface InstallModalProps {
   onClose: () => void;
@@ -165,15 +166,17 @@ export const InstallModal: React.FC<InstallModalProps> = ({ onClose, deferredPro
                   marginLeft: 'auto',
                 }}
               >
-                v1.0 Signed
+                Signed
               </span>
             </div>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
-              Standalone release APK (3.4 MB). Directly installable on any Android phone without app store restrictions.
+              Standalone signed release APK, installable on any Android phone without app
+              store restrictions.
             </p>
             <a
-              href="/DayCraft.apk"
-              download="DayCraft.apk"
+              href={LATEST_APK_URL}
+              target="_blank"
+              rel="noopener noreferrer"
               className="btn-primary"
               style={{
                 display: 'flex',
@@ -190,7 +193,7 @@ export const InstallModal: React.FC<InstallModalProps> = ({ onClose, deferredPro
               }}
             >
               <Download size={15} />
-              <span>Download DayCraft.apk (3.4 MB)</span>
+              <span>Download latest APK</span>
             </a>
           </div>
 

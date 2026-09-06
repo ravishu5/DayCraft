@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Sun, Moon, Monitor, Check, RefreshCw, Smartphone } from 'lucide-react';
+import { Sun, Moon, Monitor, Check, RefreshCw, Smartphone, Download } from 'lucide-react';
 import type { ThemeMode, RoutinePersona } from '../../types';
 import { StorageService } from '../../services/storageService';
 import { APP_CURRENT_VERSION } from '../../constants/version';
@@ -22,6 +22,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   theme,
   onThemeChange,
   onOpenWelcome,
+  onOpenInstall,
   onDataReset,
   versionConfig,
   isCheckingVersion = false,
@@ -339,6 +340,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <RefreshCw size={15} className={isCheckingVersion ? 'spin' : ''} />
           <span>{isCheckingVersion ? 'Checking for Updates...' : 'Check for Updates'}</span>
         </button>
+
+        {onOpenInstall && (
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{
+              width: '100%',
+              justifyContent: 'center',
+              padding: '0.7rem',
+              fontSize: '0.84rem',
+              fontWeight: 600,
+              gap: '0.5rem',
+              marginTop: '0.5rem',
+            }}
+            onClick={onOpenInstall}
+          >
+            <Download size={15} />
+            <span>Install to Device</span>
+          </button>
+        )}
 
         {updateFeedback && (
           <div
